@@ -26,7 +26,7 @@ To bypass this and test the functionality:
 1. Click **"Login"** or **"Sign Up"** on the home page.
 2. Select your Google account.
 3. On the red warning screen, click the **"Advanced"** text link at the bottom left.
-4. Click **"Go to [Your App Name] (unsafe)"**.
+4. Click **"Go to calendly-clone-beta-seven.vercel.app(unsafe)"**.
 5. Click **"Continue"** to grant Calendar permissions.
 6. You will be redirected to the Host Dashboard where you can set your hours and copy your public booking link.
 
