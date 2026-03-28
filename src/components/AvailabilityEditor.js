@@ -56,10 +56,12 @@ export default function AvailabilityEditor({ availability }) {
 
     setStatus({ kind: "saving", message: "Saving…" });
     try {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
       const res = await fetch("/api/availability", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ availability: payloadAvailability }),
+        body: JSON.stringify({ availability: payloadAvailability, timeZone }),
       });
 
       if (!res.ok) {
@@ -139,7 +141,9 @@ export default function AvailabilityEditor({ availability }) {
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-gray-600">
-          Toggle days on/off, then adjust start and end times.
+          Toggle days on/off, then adjust start and end times. Times are saved in
+          your current timezone (
+          {Intl.DateTimeFormat().resolvedOptions().timeZone}).
         </p>
         <div className="flex items-center gap-3">
           {status.kind !== "idle" ? (

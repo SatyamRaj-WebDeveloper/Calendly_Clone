@@ -1,11 +1,65 @@
 import { NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { google } from "googleapis";
 
 import connectMongo from "../../../../lib/mongodb";
 import User from "../../../../models/User";
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+const AGENDA_TIMEOUT_MS = 12_000;
+
 function isEmail(str) {
   return typeof str === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("LLM timeout")), ms);
+    }),
+  ]);
+}
+
+/**
+ * Returns a short 3-point agenda string, or null if unavailable (missing key, error, timeout).
+ */
+async function generateMeetingAgendaFromTopic(topic) {
+  const trimmed = String(topic || "").trim();
+  if (!trimmed) return null;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const prompt = `You are helping schedule a professional meeting. The guest provided this topic or notes:
+
+${JSON.stringify(trimmed)}
+
+Write a brief, professional 3-point meeting agenda based only on that topic. Use exactly three numbered lines (1. 2. 3.). Each point should be one short sentence. No preamble, no title, no closing — only the three numbered lines.`;
+
+    const result = await withTimeout(model.generateContent(prompt), AGENDA_TIMEOUT_MS);
+    const text = result?.response?.text?.();
+    if (typeof text !== "string" || !text.trim()) return null;
+    return text.trim().slice(0, 4000);
+  } catch {
+    return null;
+  }
+}
+
+function buildEventDescription(topic, agenda) {
+  const topicPart = String(topic || "").trim();
+  const agendaPart = typeof agenda === "string" ? agenda.trim() : "";
+
+  if (topicPart && agendaPart) {
+    return `Topic / notes\n${topicPart}\n\nAgenda\n${agendaPart}`;
+  }
+  if (agendaPart) return `Agenda\n${agendaPart}`;
+  if (topicPart) return topicPart;
+  return undefined;
 }
 
 export async function POST(req) {
@@ -82,14 +136,15 @@ export async function POST(req) {
   const calendar = google.calendar({ version: "v3", auth: oauth2Client });
 
   const summary = `Meeting with ${guestName.trim()}`;
-  const description = String(topic || "").trim();
+  const agenda = await generateMeetingAgendaFromTopic(topic);
+  const description = buildEventDescription(topic, agenda);
 
   try {
     const event = await calendar.events.insert({
       calendarId: "primary",
       requestBody: {
         summary,
-        description: description ? description : undefined,
+        description,
         start: { dateTime: start.toISOString() },
         end: { dateTime: end.toISOString() },
         attendees: [{ email: guestEmail.trim() }],

@@ -24,6 +24,19 @@ function normalizeAvailability(input) {
   return normalized;
 }
 
+/** Validate IANA timezone; fall back to UTC if invalid. */
+function normalizeTimeZone(input) {
+  if (typeof input !== "string") return "UTC";
+  const tz = input.trim();
+  if (!tz) return "UTC";
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return tz;
+  } catch {
+    return "UTC";
+  }
+}
+
 export async function PUT(req) {
   const session = await getServerSession(authOptions);
   const email = session?.user?.email;
@@ -48,11 +61,13 @@ export async function PUT(req) {
     );
   }
 
+  const timeZone = normalizeTimeZone(body?.timeZone);
+
   await connectMongo();
 
   const updated = await User.findOneAndUpdate(
     { email },
-    { $set: { availability } },
+    { $set: { availability, timeZone } },
     { new: true },
   ).lean();
 
@@ -61,7 +76,11 @@ export async function PUT(req) {
   }
 
   return NextResponse.json(
-    { message: "Availability updated", availability: updated.availability },
+    {
+      message: "Availability updated",
+      availability: updated.availability,
+      timeZone: updated.timeZone,
+    },
     { status: 200 },
   );
 }

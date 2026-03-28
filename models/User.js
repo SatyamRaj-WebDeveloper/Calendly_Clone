@@ -6,6 +6,10 @@ const userSchema = new Schema({
   image: { type: String },
   accessToken: { type: String }, 
   refreshToken: { type: String },
+  timeZone: {
+    type: String,
+    default: "UTC",
+  },
   availability: {
     type: [
       {

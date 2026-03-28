@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-import Navbar from "../../../components/Navbar";
+
 import BookingCalendar from "../../../components/BookingCalendar";
 
 import connectMongo from "../../../../lib/mongodb";
@@ -16,7 +16,6 @@ export default async function BookingPage({ params }) {
   if (!user) {
     return (
       <div className="min-h-screen bg-white">
-        <Navbar />
         <main className="mx-auto w-full max-w-3xl px-6 py-12">
           <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
             <h1 className="text-xl font-semibold text-gray-900">
@@ -36,7 +35,7 @@ export default async function BookingPage({ params }) {
 
   return (
     <div className="min-h-screen bg-white">
-      <Navbar />
+
 
       <main className="mx-auto w-full max-w-6xl px-6 py-12">
         <div className="mb-8 flex items-start justify-between gap-6">
@@ -61,7 +60,12 @@ export default async function BookingPage({ params }) {
           </div>
         </div>
 
-        <BookingCalendar availability={availability} hostEmail={decodedEmail}/>
+        <BookingCalendar
+          availability={availability}
+          hostEmail={decodedEmail}
+          hostName={user.name || "Host"}
+          hostTimeZone={user.timeZone || "UTC"}
+        />
       </main>
     </div>
   );

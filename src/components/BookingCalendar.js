@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { DateTime } from "luxon";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -8,32 +9,110 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-function timeToMinutes(timeStr) {
-  // Expects "HH:MM"
-  const [h, m] = String(timeStr).split(":").map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-  return h * 60 + m;
-}
-
-function minutesToTime(minutes) {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${pad2(h)}:${pad2(m)}`;
-}
-
-function combineDateAndTime(date, timeStr) {
-  // date: Date (midnight), timeStr: "HH:MM"
-  const [h, m] = String(timeStr).split(":").map(Number);
-  const d = new Date(date);
-  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
-  return d;
+function formatLocalTimeLabel(d) {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
-export default function BookingCalendar({ availability, hostEmail, hostName }) {
+
+function luxonWeekdayToJs(weekday) {
+  return weekday === 7 ? 0 : weekday;
+}
+
+function parseHourMinute(timeStr) {
+  const [h, m] = String(timeStr).split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return { h, m };
+}
+
+
+function buildCrossTimezoneSlots(
+  selectedDate,
+  availability,
+  hostTimeZone,
+  guestTimeZone,
+) {
+  if (!selectedDate || !availability?.length) return [];
+
+  const hostTz = hostTimeZone || "UTC";
+  const guestTz = guestTimeZone || "UTC";
+
+  const guestStart = DateTime.fromJSDate(selectedDate, {
+    zone: guestTz,
+  }).startOf("day");
+  const guestEnd = guestStart.plus({ days: 1 });
+
+  let cursor = guestStart.setZone(hostTz).startOf("day").minus({ days: 1 });
+  const lastHostDay = guestEnd.setZone(hostTz).startOf("day").plus({ days: 1 });
+
+  const seen = new Set();
+  const slotStarts = [];
+
+  while (cursor <= lastHostDay) {
+    const jsDow = luxonWeekdayToJs(cursor.weekday);
+
+    for (const entry of availability) {
+      if (Number(entry?.dayOfWeek) !== jsDow) continue;
+      const sh = parseHourMinute(entry.startTime);
+      const eh = parseHourMinute(entry.endTime);
+      if (!sh || !eh) continue;
+
+      const rangeStart = cursor.set({
+        hour: sh.h,
+        minute: sh.m,
+        second: 0,
+        millisecond: 0,
+      });
+      const rangeEnd = cursor.set({
+        hour: eh.h,
+        minute: eh.m,
+        second: 0,
+        millisecond: 0,
+      });
+      if (rangeEnd <= rangeStart) continue;
+
+      let t = rangeStart;
+      while (t.plus({ minutes: 30 }) <= rangeEnd) {
+        if (t >= guestStart && t < guestEnd) {
+          const ms = t.toMillis();
+          if (!seen.has(ms)) {
+            seen.add(ms);
+            slotStarts.push(t.toJSDate());
+          }
+        }
+        t = t.plus({ minutes: 30 });
+      }
+    }
+
+    cursor = cursor.plus({ days: 1 });
+  }
+
+  slotStarts.sort((a, b) => a.getTime() - b.getTime());
+  return slotStarts;
+}
+
+function guestTimezoneDisplayName() {
+  try {
+    const parts = new Intl.DateTimeFormat(undefined, {
+      timeZoneName: "long",
+    }).formatToParts(new Date());
+    const name = parts.find((p) => p.type === "timeZoneName")?.value;
+    if (name) return name;
+  } catch {
+
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "your local timezone";
+}
+
+export default function BookingCalendar({
+  availability,
+  hostEmail,
+  hostName = "Host",
+  hostTimeZone = "UTC",
+}) {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -42,14 +121,15 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
   });
   const [selectedDate, setSelectedDate] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [selectedTime, setSelectedTime] = useState(null);
+ 
+  const [selectedSlotStart, setSelectedSlotStart] = useState(null);
   const [form, setForm] = useState({
     guestName: "",
     guestEmail: "",
     topic: "",
   });
   const [submitState, setSubmitState] = useState({
-    kind: "idle", // idle | submitting | success | error
+    kind: "idle", 
     message: "",
   });
 
@@ -64,7 +144,6 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
     const firstOfMonth = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-    // 0..6 where 0 is Sunday
     const startDow = firstOfMonth.getDay();
 
     const cells = [];
@@ -81,45 +160,38 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
     return cells;
   }, [viewDate]);
 
-  const availableRangesForSelectedDay = useMemo(() => {
-    if (!selectedDate) return [];
-    const dow = selectedDate.getDay();
-    return (availability || []).filter((a) => Number(a?.dayOfWeek) === dow);
-  }, [availability, selectedDate]);
+  const guestTimezoneLabel = useMemo(() => guestTimezoneDisplayName(), []);
+
+  const guestTimeZoneId = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    [],
+  );
 
   const slots = useMemo(() => {
     if (!selectedDate) return [];
-    if (!availableRangesForSelectedDay.length) return [];
+    return buildCrossTimezoneSlots(
+      selectedDate,
+      availability,
+      hostTimeZone,
+      guestTimeZoneId,
+    );
+  }, [selectedDate, availability, hostTimeZone, guestTimeZoneId]);
 
-    const allSlots = [];
-    for (const range of availableRangesForSelectedDay) {
-      const startMin = timeToMinutes(range.startTime);
-      const endMin = timeToMinutes(range.endTime);
-      if (startMin === null || endMin === null) continue;
-      if (endMin <= startMin) continue;
+  const hasAvailabilityRules = (availability?.length ?? 0) > 0;
 
-      for (let t = startMin; t < endMin; t += 30) {
-        allSlots.push(minutesToTime(t));
-      }
-    }
-
-    // Remove duplicates and keep sorted order
-    return Array.from(new Set(allSlots)).sort();
-  }, [availableRangesForSelectedDay, selectedDate]);
-
-  function openModalFor(time) {
-    setSelectedTime(time);
+  function openModalFor(slotStart) {
+    setSelectedSlotStart(slotStart);
     setSubmitState({ kind: "idle", message: "" });
     setModalOpen(true);
   }
 
   async function scheduleEvent(e) {
     e.preventDefault();
-    if (!selectedDate || !selectedTime) return;
+    if (!selectedSlotStart) return;
 
     setSubmitState({ kind: "submitting", message: "" });
     try {
-      const start = combineDateAndTime(selectedDate, selectedTime);
+      const start = selectedSlotStart;
       const end = addMinutes(start, 30);
 
       const payload = {
@@ -153,7 +225,7 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
 
   function closeModal() {
     setModalOpen(false);
-    setSelectedTime(null);
+    setSelectedSlotStart(null);
   }
 
   function goPrevMonth() {
@@ -272,9 +344,7 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
 
             {selectedDate ? (
               <span className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700">
-                {availableRangesForSelectedDay.length
-                  ? `${slots.length} slot(s)`
-                  : "No availability"}
+                {slots.length ? `${slots.length} slot(s)` : "No availability"}
               </span>
             ) : null}
           </div>
@@ -285,40 +355,54 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
                 Choose a date from the calendar to generate 30-minute booking
                 slots.
               </div>
-            ) : availableRangesForSelectedDay.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-600">
-                This host isn&apos;t available on the selected day of the week.
-                Try another date.
-              </div>
-            ) : slots.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-600">
-                No slots available for the selected day with the current time range.
-              </div>
             ) : (
-              <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
-                {slots.map((time) => (
-                  <div
-                    key={time}
-                    className="flex items-center justify-between gap-3 bg-white px-4 py-4"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {time}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        30-minute slot
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => openModalFor(time)}
-                      className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                    >
-                      Confirm
-                    </button>
+              <>
+                <p className="mb-4 text-xs font-medium text-blue-700">
+                  Times shown in {guestTimezoneLabel}
+                </p>
+                {slots.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 bg-white p-5 text-sm text-gray-600">
+                    {!hasAvailabilityRules ? (
+                      <>
+                        This host has not set weekly availability yet.
+                      </>
+                    ) : (
+                      <>
+                        No available times on this date in your timezone. Try
+                        another day.
+                      </>
+                    )}
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+                    {slots.map((slotStart) => {
+                      const label = formatLocalTimeLabel(slotStart);
+                      return (
+                        <div
+                          key={slotStart.getTime()}
+                          className="flex items-center justify-between gap-3 bg-white px-4 py-4"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-900">
+                              {label}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              30-minute slot
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openModalFor(slotStart)}
+                            className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                          >
+                            Confirm
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -368,7 +452,7 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
                       Schedule meeting
                     </h3>
                     <p className="mt-1 text-sm text-gray-600">
-                      {selectedDate && selectedTime ? (
+                      {selectedDate && selectedSlotStart ? (
                         <>
                           {selectedDate.toLocaleDateString(undefined, {
                             weekday: "long",
@@ -376,7 +460,10 @@ export default function BookingCalendar({ availability, hostEmail, hostName }) {
                             month: "short",
                             day: "numeric",
                           })}{" "}
-                          at <span className="font-medium">{selectedTime}</span>
+                          at{" "}
+                          <span className="font-medium">
+                            {formatLocalTimeLabel(selectedSlotStart)}
+                          </span>
                         </>
                       ) : null}
                     </p>
