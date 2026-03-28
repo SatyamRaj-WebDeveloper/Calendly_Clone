@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# 4N Scheduling - AI-Powered Calendly Clone
 
-## Getting Started
+A full-stack scheduling application built for the 4N EcoTech assessment. This platform allows users to set their weekly availability, share a personalized booking link, and seamlessly schedule cross-timezone meetings that automatically sync to their Google Calendar. 
 
-First, run the development server:
+It also features a native LLM integration that generates structured meeting agendas directly inside the calendar invite.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🚀 Key Features
+* **Secure Authentication:** Passwordless Google OAuth via NextAuth.
+* **Dynamic Availability:** Hosts can set custom weekly hours.
+* **Cross-Timezone Booking:** Automatically converts host availability to the guest's local browser timezone.
+* **Google Calendar Sync:** Uses standard OAuth2 tokens to create events directly on the host's primary calendar.
+* **✨ AI Agenda Generator (Bonus):** Integrates the Google Gemini API to analyze the guest's meeting topic and inject a structured, 3-point agenda into the calendar event description.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🛠 Tech Stack
+* **Frontend:** Next.js (App Router), Tailwind CSS
+* **Backend:** Next.js Route Handlers (API)
+* **Database:** MongoDB (Mongoose)
+* **Integrations:** Google Calendar API (`googleapis`), Google Gemini (`@google/generative-ai`)
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## ⚠️ CRITICAL: How to Test the Application (Google OAuth)
+Because this application requests sensitive scopes (reading/writing to Google Calendar) and is currently in development mode, **Google will show a "Google hasn't verified this app" warning screen** when you attempt to log in. 
 
-## Learn More
+To bypass this and test the functionality:
+1. Click **"Login"** or **"Sign Up"** on the home page.
+2. Select your Google account.
+3. On the red warning screen, click the **"Advanced"** text link at the bottom left.
+4. Click **"Go to [Your App Name] (unsafe)"**.
+5. Click **"Continue"** to grant Calendar permissions.
+6. You will be redirected to the Host Dashboard where you can set your hours and copy your public booking link.
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 💻 Local Setup
+1. Clone the repository.
+2. Run `npm install`.
+3. Create a `.env.local` file with the following variables:
+   * `MONGODB_URI`
+   * `GOOGLE_CLIENT_ID`
+   * `GOOGLE_CLIENT_SECRET`
+   * `NEXTAUTH_SECRET`
+   * `NEXTAUTH_URL=http://localhost:3000`
+   * `GEMINI_API_KEY`
+4. Run `npm run dev`.
