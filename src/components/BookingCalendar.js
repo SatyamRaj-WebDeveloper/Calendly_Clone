@@ -21,7 +21,19 @@ function minutesToTime(minutes) {
   return `${pad2(h)}:${pad2(m)}`;
 }
 
-export default function BookingCalendar({ availability }) {
+function combineDateAndTime(date, timeStr) {
+  // date: Date (midnight), timeStr: "HH:MM"
+  const [h, m] = String(timeStr).split(":").map(Number);
+  const d = new Date(date);
+  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
+}
+
+function addMinutes(date, minutes) {
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
+
+export default function BookingCalendar({ availability, hostEmail, hostName }) {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -29,6 +41,17 @@ export default function BookingCalendar({ availability }) {
     return d;
   });
   const [selectedDate, setSelectedDate] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [form, setForm] = useState({
+    guestName: "",
+    guestEmail: "",
+    topic: "",
+  });
+  const [submitState, setSubmitState] = useState({
+    kind: "idle", // idle | submitting | success | error
+    message: "",
+  });
 
   const monthLabel = useMemo(() => {
     return viewDate.toLocaleString(undefined, { month: "long", year: "numeric" });
@@ -84,10 +107,53 @@ export default function BookingCalendar({ availability }) {
     return Array.from(new Set(allSlots)).sort();
   }, [availableRangesForSelectedDay, selectedDate]);
 
-  function onConfirm(time) {
-    // For now: just log selection. Later this can trigger booking flow.
-    const date = selectedDate ? selectedDate.toISOString().slice(0, 10) : null;
-    console.log("Selected booking time:", { date, time });
+  function openModalFor(time) {
+    setSelectedTime(time);
+    setSubmitState({ kind: "idle", message: "" });
+    setModalOpen(true);
+  }
+
+  async function scheduleEvent(e) {
+    e.preventDefault();
+    if (!selectedDate || !selectedTime) return;
+
+    setSubmitState({ kind: "submitting", message: "" });
+    try {
+      const start = combineDateAndTime(selectedDate, selectedTime);
+      const end = addMinutes(start, 30);
+
+      const payload = {
+        hostEmail,
+        guestName: form.guestName.trim(),
+        guestEmail: form.guestEmail.trim(),
+        topic: form.topic.trim(),
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+      };
+
+      const res = await fetch("/api/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Failed to schedule event");
+      }
+
+      setSubmitState({ kind: "success", message: "" });
+    } catch (err) {
+      setSubmitState({
+        kind: "error",
+        message: err?.message || "Something went wrong while scheduling.",
+      });
+    }
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setSelectedTime(null);
   }
 
   function goPrevMonth() {
@@ -245,7 +311,7 @@ export default function BookingCalendar({ availability }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => onConfirm(time)}
+                      onClick={() => openModalFor(time)}
                       className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
                     >
                       Confirm
@@ -257,6 +323,151 @@ export default function BookingCalendar({ availability }) {
           </div>
         </div>
       </div>
+
+      {modalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Schedule meeting"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-gray-900/20"
+            aria-label="Close modal"
+            onClick={closeModal}
+          />
+
+          <div className="relative w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-xl">
+            {submitState.kind === "success" ? (
+              <div className="text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-700">
+                  ✓
+                </div>
+                <h3 className="mt-4 text-lg font-semibold text-gray-900">
+                  Success! Meeting Scheduled.
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  Your meeting has been added to {hostName}&apos;s calendar.
+                </p>
+                <div className="mt-6">
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Schedule meeting
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {selectedDate && selectedTime ? (
+                        <>
+                          {selectedDate.toLocaleDateString(undefined, {
+                            weekday: "long",
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })}{" "}
+                          at <span className="font-medium">{selectedTime}</span>
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-blue-50"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <form onSubmit={scheduleEvent} className="mt-5 space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-900">
+                      Guest Name
+                    </label>
+                    <input
+                      value={form.guestName}
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, guestName: e.target.value }))
+                      }
+                      required
+                      className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                      placeholder="Jane Doe"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-900">
+                      Guest Email
+                    </label>
+                    <input
+                      type="email"
+                      value={form.guestEmail}
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, guestEmail: e.target.value }))
+                      }
+                      required
+                      className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                      placeholder="jane@example.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-900">
+                      Meeting Topic/Notes
+                    </label>
+                    <textarea
+                      value={form.topic}
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, topic: e.target.value }))
+                      }
+                      rows={4}
+                      className="mt-2 w-full resize-none rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                      placeholder="What would you like to discuss?"
+                    />
+                  </div>
+
+                  {submitState.kind === "error" ? (
+                    <div className="rounded-xl border border-red-200 bg-white p-4 text-sm text-red-700">
+                      {submitState.message}
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="rounded-full border border-gray-200 bg-white px-6 py-3 text-sm font-semibold text-gray-800 transition hover:bg-blue-50"
+                      disabled={submitState.kind === "submitting"}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="rounded-full bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={submitState.kind === "submitting"}
+                    >
+                      {submitState.kind === "submitting"
+                        ? "Scheduling…"
+                        : "Schedule Event"}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

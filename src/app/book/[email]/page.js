@@ -61,7 +61,7 @@ export default async function BookingPage({ params }) {
           </div>
         </div>
 
-        <BookingCalendar availability={availability} />
+        <BookingCalendar availability={availability} hostEmail={decodedEmail}/>
       </main>
     </div>
   );

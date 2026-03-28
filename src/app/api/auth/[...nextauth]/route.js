@@ -23,10 +23,16 @@ const authOptions = {
     async signIn({ user, account }) {
       if (account.provider === "google") {
         await connectMongo();
-        const existingUser = await User.findOne({ email: user.email });
-        if (!existingUser) {
-          await User.create({ name: user.name, email: user.email, image: user.image });
-        }
+        await User.findOneAndUpdate(
+          { email: user.email },
+          { 
+            name: user.name, 
+            image: user.image,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token
+          },
+          { upsert: true, new: true } 
+        );
         return true;
       }
       return false;

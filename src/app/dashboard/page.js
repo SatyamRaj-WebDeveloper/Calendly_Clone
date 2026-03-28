@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth/next";
 
 import Navbar from "../../components/Navbar";
 import AvailabilityEditor from "../../components/AvailabilityEditor";
-
+import CopyLink from "../../components/CopyLink";
 import connectMongo from "../../../lib/mongodb";
 import User from "../../../models/User";
 import { authOptions } from "../api/auth/[...nextauth]/route";
@@ -52,6 +52,7 @@ export default async function DashboardPage() {
                 <p className="truncate text-sm text-gray-600">{email}</p>
               </div>
             </div>
+            <CopyLink email={email} />
 
             <div className="mt-6 grid gap-3">
               <div className="rounded-xl bg-gray-50 p-4">
